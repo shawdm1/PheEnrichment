@@ -1,0 +1,49 @@
+
+times=1e5
+
+ccmatch=read.table("patient_case_control_matches.txt", header=F, sep="\t", fill=T)
+print(paste('case without matched control:',ccmatch[apply(ccmatch, MARGIN=1, function(x) length(na.exclude(x)))==1,1],sep=" "))
+ccmatch=ccmatch[apply(ccmatch, MARGIN=1, function(x) length(na.exclude(x)))>1,]
+
+#ccmatch=t(apply(ccmatch, MARGIN=1, function(x) sapply(x, function(y) paste('R',y, sep=""))))
+#ccmatch[ccmatch=="RNA"]=NA
+
+
+phewas=read.csv("patient_phecodes.csv",header=F, col.names=c("GRID","PHEWAS_CODE","PHEWAS_DATE"))
+
+phewas$PHEWAS_CODE=as.character(phewas$PHEWAS_CODE)
+phewas=phewas[,c(1,2)]
+phewas=unique(phewas)
+
+casephe=sort(unique(phewas$PHEWAS_CODE[which(phewas$GRID %in% ccmatch[,1])]))
+
+permu=function(match, phe, cphe){
+	rsample=apply(match, MARGIN=1, function(x) sample(na.exclude(x), size=1))
+	table(phe$PHEWAS_CODE[which(phe$GRID %in% rsample)])[cphe]
+}
+
+ptable=sapply(1:times, function(x) permu(ccmatch, phewas, casephe))
+rownames(ptable)=casephe
+ptable[is.na(ptable)]=0
+
+phewas_name=read.csv('phecode_name_map.csv', header=T)
+phewas_name$PHEWAS_CODE=as.character(phewas_name$PHEWAS_CODE)
+phename=unique(phewas_name[,c(2,3)])
+rm(phewas_name)
+phename$PHEWAS_CODE_DESCRIPTION=as.character(phename$PHEWAS_CODE_DESCRIPTION)
+
+getsum=function(phe){
+	desc=phename$PHEWAS_CODE_DESCRIPTION[which(phename$PHEWAS_CODE==phe)]
+	cnt=table(phewas$PHEWAS_CODE[which(phewas$GRID %in% ccmatch[,1])])[phe]
+	pval=1-ecdf(as.numeric(ptable[phe,]))(cnt)
+	perc=quantile(ptable[phe,], probs=c(0.01,0.05,0.1,0.5,0.9,0.95,0.99), type=3)
+	names(perc)=c("p01","p05","p10","p50","p90","p95","p99")
+	maxc=max(ptable[phe,])
+	c(phecode=phe, description=desc, count=cnt, p.value=pval, perc, max=maxc)
+}
+
+final.table=t(sapply(casephe, getsum))
+
+write.table(final.table,"Enrichment_output.txt", col.names=T, row.names=F, quote=F, sep="\t")
+rm(list=ls())
+
